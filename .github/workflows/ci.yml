@@ -1,0 +1,170 @@
+name: CI
+
+# Trigger workflow on push/pull requests to 'main' or 'develop'
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  release:
+    types: [created]
+
+env:
+  BUILD_DIR: ${{ github.workspace }}/build
+
+jobs:
+  # Build and test across multiple platforms and compilers
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        compiler: [gcc, clang, msvc]
+        exclude:
+          - os: windows-latest
+            compiler: gcc
+          - os: windows-latest
+            compiler: clang
+
+    steps:
+      - uses: actions/checkout@v3
+      
+      # Cache CMake build to speed up subsequent builds
+      - name: Cache CMake
+        uses: actions/cache@v2
+        with:
+          path: ${{ env.BUILD_DIR }}
+          key: ${{ runner.os }}-${{ matrix.compiler }}-cmake-${{ hashFiles('**/CMakeLists.txt', '**/*.cpp', '**/*.h') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.compiler }}-cmake-
+
+      # Install dependencies
+      - name: Install dependencies (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y cmake clang doxygen lcov
+
+      - name: Install dependencies (macOS)
+        if: matrix.os == 'macos-latest'
+        run: brew install cmake clang doxygen lcov
+
+      - name: Install dependencies (Windows)
+        if: matrix.os == 'windows-latest'
+        run: choco install cmake doxygen.install visualstudio2022buildtools
+
+      - name: Configure CMake
+        run: cmake -B ${{ env.BUILD_DIR }} -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build ${{ env.BUILD_DIR }} --config Release
+
+      - name: Test the project
+        working-directory: ${{ env.BUILD_DIR }}
+        run: ctest -C Release --output-on-failure -j ${{ matrix.os == 'windows-latest' && '4' || $(nproc) }}
+
+      # Generate API documentation using Doxygen
+      - name: Generate Documentation
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
+        run: cmake --build ${{ env.BUILD_DIR }} --target doc_doxygen
+
+  # Static analysis with Clang-Tidy
+  static-analysis:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install Clang-Tidy
+        run: sudo apt-get install -y clang-tidy
+      - name: Run Clang-Tidy
+        run: find . -name '*.cpp' -o -name '*.h' | xargs clang-tidy -p ${{ env.BUILD_DIR }}
+
+  # Linting with clang-format
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install clang-format
+        run: sudo apt-get install -y clang-format
+      - name: Run clang-format
+        run: |
+          find . -name '*.cpp' -o -name '*.h' | xargs clang-format -i
+          git diff --exit-code || (echo "Code formatting issues found. Please run clang-format locally and commit the changes." && exit 1)
+
+  # Code coverage using lcov
+  code-coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install lcov
+        run: sudo apt-get install -y lcov
+      - name: Configure CMake with coverage flags
+        run: cmake -B ${{ env.BUILD_DIR }} -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS="--coverage"
+      - name: Build
+        run: cmake --build ${{ env.BUILD_DIR }} --config Debug
+      - name: Test
+        working-directory: ${{ env.BUILD_DIR }}
+        run: ctest -C Debug --output-on-failure -j $(nproc)
+      - name: Generate coverage report
+        run: |
+          lcov --capture --directory . --output-file coverage.info
+          lcov --remove coverage.info '/usr/*' '/tests/*' --output-file coverage.info
+          lcov --list coverage.info
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./coverage.info
+
+  # Sanitizer testing (AddressSanitizer and UndefinedBehaviorSanitizer)
+  sanitizer-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Configure CMake with sanitizers
+        run: cmake -B ${{ env.BUILD_DIR }} -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+      - name: Build
+        run: cmake --build ${{ env.BUILD_DIR }} --config Debug
+      - name: Test with sanitizers
+        working-directory: ${{ env.BUILD_DIR }}
+        run: ctest -C Debug --output-on-failure -j $(nproc)
+        env:
+          ASAN_OPTIONS: verbosity=1:detect_leaks=1
+
+  # Documentation deployment to GitHub Pages
+  deploy-docs:
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Configure CMake
+        run: cmake -B ${{ env.BUILD_DIR }}
+      - name: Generate Documentation
+        run: cmake --build ${{ env.BUILD_DIR }} --target doc_doxygen
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ${{ env.BUILD_DIR }}/docs/api
+
+  # Update CHANGELOG on release
+  update-changelog:
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: Update CHANGELOG
+        run: |
+          git log --pretty=format:"* %s" $(git describe --tags --abbrev=0)..HEAD > CHANGELOG_NEW.md
+          echo "## [$(git describe --tags --abbrev=0)] - $(date +'%Y-%m-%d')" > CHANGELOG_TEMP.md
+          cat CHANGELOG_NEW.md >> CHANGELOG_TEMP.md
+          echo "" >> CHANGELOG_TEMP.md
+          cat CHANGELOG.md >> CHANGELOG_TEMP.md
+          mv CHANGELOG_TEMP.md CHANGELOG.md
+          rm CHANGELOG_NEW.md
+      - name: Commit CHANGELOG update
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add CHANGELOG.md
+          git commit -m "Update CHANGELOG for release $(git describe --tags --abbrev=0)"
+          git push

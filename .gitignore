@@ -1,6 +1,33 @@
 # Mac System Files
 *.DS_Store
 
+# IDE files
+.vscode/
+.idea/
+
+# Build Artifacts
+build/
+cmake-build-*/
+
+# CMake generated files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+
+# Code coverage
+*.gcno
+*.gcda
+*.gcov
+coverage.info
+coverage/
+
+# Doxygen output
+docs/api/
+
+# Benchmark results
+**/benchmarks/results
+
 # Prerequisites
 *.d
 

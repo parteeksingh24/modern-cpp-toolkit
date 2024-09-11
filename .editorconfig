@@ -1,0 +1,19 @@
+# Root configuration file for project-wide settings
+root = true
+
+# Global settings for all files
+[*]
+charset = utf-8                  # Character encoding
+end_of_line = lf                 # Line endings
+indent_size = 2                  # Indentation size
+indent_style = space             # Indentation style
+insert_final_newline = true      # Ensure newline at file end
+trim_trailing_whitespace = true  # Remove trailing whitespace
+
+# Markdown file-specific settings
+[*.md]
+trim_trailing_whitespace = false # Preserve trailing whitespace
+
+# Makefile-specific settings
+[Makefile]
+indent_style = tab               # Use tabs for Makefiles

@@ -37,13 +37,20 @@ If you'd like to get involved on a particular improvement or feature, here's how
     ```
 
 4. **Make Your Changes**: Implement your feature or fix and thoroughly test your changes.
-5. **Commit Your Changes**: Ensure your commit messages are clear.
+5. **Build the Project**: Ensure that your changes build properly using CMake.
+
+    ```bash
+    mkdir build && cd build
+    cmake ..
+    cmake --build .
+    ```
+6. **Commit Your Changes**: Ensure your commit messages are clear.
 
     ```bash
     git commit -m "Add a concise description of your change"
     ```
 
-6. **Push to Your Fork** and submit a pull request. I will review it and consider including it in the project.
+7. **Push to Your Fork** and submit a pull request. I will review it and consider including it in the project.
 
 ## Style and Coding Conventions
 
