@@ -22,7 +22,7 @@ option(BUILD_BENCHMARKS "Build the benchmarks" ON)
 
 # Add compile options for different compilers
 if(MSVC)
-  add_compile_options(/W4 /WX)
+  add_compile_options(/W4 /WX /EHsc)
 else()
   add_compile_options(-Wall -Wextra -Wpedantic -Werror)
 endif()

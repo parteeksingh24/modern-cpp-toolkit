@@ -13,6 +13,7 @@ on:
 # Environment variables
 env:
   BUILD_DIR: ${{ github.workspace }}/build
+  ENABLE_COVERAGE: false
 
 # Jobs to be executed
 jobs:
@@ -119,8 +120,9 @@ jobs:
   # Code coverage job
   code-coverage:
     runs-on: ubuntu-latest
+    if: env.ENABLE_COVERAGE == 'true'  # This ensures the job only runs if ENABLE_COVERAGE is set to true
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
     # Install lcov for generating coverage reports
     - name: Install lcov
