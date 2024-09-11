@@ -44,6 +44,7 @@ set(BENCHMARK_MIN_VERSION "1.6.0")
 # Find dependencies
 find_package(GTest ${GOOGLETEST_MIN_VERSION})
 if(NOT GTest_FOUND)
+  message(STATUS "GTest not found. Fetching from GitHub...")
   include(FetchContent)
   FetchContent_Declare(
     googletest
@@ -56,6 +57,7 @@ endif()
 if(BUILD_BENCHMARKS)
   find_package(benchmark ${BENCHMARK_MIN_VERSION})
   if(NOT benchmark_FOUND)
+    message(STATUS "Google Benchmark not found. Fetching from GitHub...")
     include(FetchContent)
     FetchContent_Declare(
       benchmark
@@ -98,7 +100,9 @@ if(DOXYGEN_FOUND)
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
     COMMENT "Generating API documentation with Doxygen"
     VERBATIM)
-endif()
+  else()
+    message(STATUS "Doxygen not found. API documentation will not be generated.")
+  endif()
 
 # Installation
 include(CMakePackageConfigHelpers)
