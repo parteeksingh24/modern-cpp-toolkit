@@ -1,0 +1,37 @@
+# CMake package configuration:
+
+@PACKAGE_INIT@
+
+# Include macro for finding dependencies
+include(CMakeFindDependencyMacro)
+
+# Set the version of OpticLibrary
+set(OpticLibrary_VERSION @PROJECT_VERSION@)
+
+# Check if OpticDataStructures component exists and include it
+if(EXISTS "${CMAKE_CURRENT_LIST_DIR}/OpticDataStructuresTargets.cmake")
+    include("${CMAKE_CURRENT_LIST_DIR}/OpticDataStructuresTargets.cmake")
+    set(OpticLibrary_DataStructures_FOUND TRUE)
+    check_required_components(OpticLibrary_DataStructures)
+else()
+    set(OpticLibrary_DataStructures_FOUND FALSE)
+endif()
+
+# Check if OpticAlgorithms component exists and include it
+if(EXISTS "${CMAKE_CURRENT_LIST_DIR}/OpticAlgorithmsTargets.cmake")
+    include("${CMAKE_CURRENT_LIST_DIR}/OpticAlgorithmsTargets.cmake")
+    set(OpticLibrary_Algorithms_FOUND TRUE)
+    check_required_components(OpticLibrary_Algorithms)
+else()
+    set(OpticLibrary_Algorithms_FOUND FALSE)
+endif()
+
+# Set overall OpticLibrary_FOUND flag based on component availability
+if(NOT OpticLibrary_DataStructures_FOUND OR NOT OpticLibrary_Algorithms_FOUND)
+    set(OpticLibrary_FOUND FALSE)
+else()
+    set(OpticLibrary_FOUND TRUE)
+endif()
+
+# Final check for required components
+check_required_components(OpticLibrary)

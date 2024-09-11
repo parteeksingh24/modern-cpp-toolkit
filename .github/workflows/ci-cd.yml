@@ -1,0 +1,81 @@
+# Workflow name
+name: Optic Library CI/CD
+
+# Trigger events for the workflow
+on:
+  push:
+    branches: [ main, develop, feature/** ]
+  pull_request:
+    branches: [ main, develop ]
+
+# Jobs to be executed
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      # If one job fails, continue running others to gather feedback from all jobs
+      fail-fast: false
+
+      # Matrix to define multiple combinations of OS, build types, and compilers
+      # This matrix will run builds for:
+      # - Windows with MSVC (cl)
+      # - Linux with GCC and Clang
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        build_type: [Release]
+        c_compiler: [gcc, clang, cl]  # Compilers used in the matrix
+        include:
+          # Windows using MSVC (cl)
+          - os: windows-latest
+            c_compiler: cl
+            cpp_compiler: cl
+          # Linux using GCC
+          - os: ubuntu-latest
+            c_compiler: gcc
+            cpp_compiler: g++
+          # Linux using Clang
+          - os: ubuntu-latest
+            c_compiler: clang
+            cpp_compiler: clang++
+        exclude:
+          # Exclude invalid or redundant combinations
+          - os: windows-latest
+            c_compiler: gcc  # GCC is not valid on Windows
+          - os: windows-latest
+            c_compiler: clang  # Clang is also not valid on Windows
+          - os: ubuntu-latest
+            c_compiler: cl  # MSVC (cl) is not valid on Linux
+
+    steps:
+    - uses: actions/checkout@v4  # Checkout the code from the repository
+
+    - name: Set reusable strings
+      # Create reusable variables (like the build output directory) to avoid repeating them in different steps
+      id: strings
+      shell: bash
+      run: |
+        echo "build-output-dir=${{ github.workspace }}/build" >> "$GITHUB_OUTPUT"
+
+    - name: Configure CMake
+      # Configure the build using CMake in the 'build' subdirectory
+      # Using matrix variables to set the compilers and build type for each job
+      run: >
+        cmake -B ${{ steps.strings.outputs.build-output-dir }}
+        -DCMAKE_CXX_COMPILER=${{ matrix.cpp_compiler }}
+        -DCMAKE_C_COMPILER=${{ matrix.c_compiler }}
+        -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+        -DBUILD_TESTS=ON  # Optionally configure to build tests
+        -DBUILD_BENCHMARKS=ON  # Optionally configure to build benchmarks
+        -S ${{ github.workspace }}
+
+    - name: Build
+      # Build the project using the CMake configuration
+      # Use the matrix's build type (Release by default)
+      run: cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ matrix.build_type }}
+
+    - name: Test
+      # Run tests using CTest in the build output directory
+      # For multi-config generators (like Visual Studio), specify the build config (Release/Debug)
+      working-directory: ${{ steps.strings.outputs.build-output-dir }}
+      run: ctest --build-config ${{ matrix.build_type }}
