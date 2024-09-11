@@ -1,0 +1,24 @@
+name: 'Install Dependencies'
+description: 'Install project dependencies based on the operating system'
+inputs:
+  os:
+    description: 'The operating system'
+    required: true
+runs:
+  using: "composite"
+  steps:
+    # Install dependencies for Ubuntu
+    - name: Install dependencies (Ubuntu)
+      if: inputs.os == 'ubuntu-latest'
+      run: sudo apt-get update && sudo apt-get install -y cmake clang doxygen lcov
+      shell: bash
+    # Install dependencies for macOS
+    - name: Install dependencies (macOS)
+      if: inputs.os == 'macos-latest'
+      run: brew install cmake clang doxygen lcov
+      shell: bash
+    # Install dependencies for Windows
+    - name: Install dependencies (Windows)
+      if: inputs.os == 'windows-latest'
+      run: choco install cmake doxygen.install visualstudio2022buildtools
+      shell: powershell

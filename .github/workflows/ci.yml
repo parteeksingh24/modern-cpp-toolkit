@@ -1,6 +1,6 @@
 name: CI
 
-# Trigger workflow on push/pull requests to 'main' or 'develop'
+# Trigger workflow on pushes and pull requests to 'main' or 'develop'
 on:
   push:
     branches: [ main, develop ]
@@ -10,23 +10,27 @@ on:
     types: [created]
 
 env:
+  # Define environment variables for build directory and type
   BUILD_DIR: ${{ github.workspace }}/build
+  BUILD_TYPE: Release
 
 jobs:
-  # Build and test across multiple platforms and compilers
   build:
+    # Run on different operating systems
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
         compiler: [gcc, clang, msvc]
         exclude:
+          # Exclude incompatible combinations
           - os: windows-latest
             compiler: gcc
           - os: windows-latest
             compiler: clang
 
     steps:
+      # Checkout the repository
       - uses: actions/checkout@v3
       
       # Cache CMake build to speed up subsequent builds
@@ -38,70 +42,75 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-${{ matrix.compiler }}-cmake-
 
-      # Install dependencies
-      - name: Install dependencies (Ubuntu)
-        if: matrix.os == 'ubuntu-latest'
-        run: sudo apt-get update && sudo apt-get install -y cmake clang doxygen lcov
+      # Install dependencies based on OS using composite action
+      - name: Install dependencies
+        uses: ./.github/actions/install-dependencies
+        with:
+          os: ${{ matrix.os }}
 
-      - name: Install dependencies (macOS)
-        if: matrix.os == 'macos-latest'
-        run: brew install cmake clang doxygen lcov
-
-      - name: Install dependencies (Windows)
-        if: matrix.os == 'windows-latest'
-        run: choco install cmake doxygen.install visualstudio2022buildtools
-
+      # Configure the build with CMake
       - name: Configure CMake
-        run: cmake -B ${{ env.BUILD_DIR }} -DCMAKE_BUILD_TYPE=Release
+        run: cmake -B ${{ env.BUILD_DIR }} -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }}
 
+      # Build the project
       - name: Build
-        run: cmake --build ${{ env.BUILD_DIR }} --config Release
+        run: cmake --build ${{ env.BUILD_DIR }} --config ${{ env.BUILD_TYPE }}
 
-      - name: Test the project
+      # Run tests
+      - name: Test
         working-directory: ${{ env.BUILD_DIR }}
-        run: ctest -C Release --output-on-failure -j ${{ matrix.os == 'windows-latest' && 4 || nproc }}
+        run: ctest -C ${{ env.BUILD_TYPE }} --output-on-failure
 
-      # Generate API documentation using Doxygen
+      # Generate documentation if on main or develop branch
       - name: Generate Documentation
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
         run: cmake --build ${{ env.BUILD_DIR }} --target doc_doxygen
 
-  # Static analysis with Clang-Tidy
   static-analysis:
     runs-on: ubuntu-latest
     steps:
+      # Checkout the repository
       - uses: actions/checkout@v3
+      # Install Clang-Tidy for static analysis
       - name: Install Clang-Tidy
         run: sudo apt-get install -y clang-tidy
+      # Run Clang-Tidy on source files
       - name: Run Clang-Tidy
         run: find . -name '*.cpp' -o -name '*.h' | xargs clang-tidy -p ${{ env.BUILD_DIR }}
 
-  # Linting with clang-format
   lint:
     runs-on: ubuntu-latest
     steps:
+      # Checkout the repository
       - uses: actions/checkout@v3
+      # Install clang-format for code formatting
       - name: Install clang-format
         run: sudo apt-get install -y clang-format
+      # Run clang-format and check for differences
       - name: Run clang-format
         run: |
           find . -name '*.cpp' -o -name '*.h' | xargs clang-format -i
           git diff --exit-code || (echo "Code formatting issues found. Please run clang-format locally and commit the changes." && exit 1)
 
-  # Code coverage using lcov
   code-coverage:
     runs-on: ubuntu-latest
     steps:
+      # Checkout the repository
       - uses: actions/checkout@v3
+      # Install lcov for code coverage
       - name: Install lcov
         run: sudo apt-get install -y lcov
+      # Configure CMake with coverage flags
       - name: Configure CMake with coverage flags
         run: cmake -B ${{ env.BUILD_DIR }} -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS="--coverage"
+      # Build the project
       - name: Build
         run: cmake --build ${{ env.BUILD_DIR }} --config Debug
+      # Run tests and gather coverage data
       - name: Test
         working-directory: ${{ env.BUILD_DIR }}
-        run: ctest -C Debug --output-on-failure -j ${{ runner.os == 'Windows' && 4 || nproc }}
+        run: ctest -C Debug --output-on-failure
+      # Generate and upload coverage report
       - name: Generate coverage report
         run: |
           lcov --capture --directory . --output-file coverage.info
@@ -112,46 +121,53 @@ jobs:
         with:
           files: ./coverage.info
 
-  # Sanitizer testing (AddressSanitizer and UndefinedBehaviorSanitizer)
   sanitizer-test:
     runs-on: ubuntu-latest
     steps:
+      # Checkout the repository
       - uses: actions/checkout@v3
+      # Configure CMake with sanitizers
       - name: Configure CMake with sanitizers
         run: cmake -B ${{ env.BUILD_DIR }} -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+      # Build the project
       - name: Build
         run: cmake --build ${{ env.BUILD_DIR }} --config Debug
+      # Run tests with sanitizers enabled
       - name: Test with sanitizers
         working-directory: ${{ env.BUILD_DIR }}
-        run: ctest -C Debug --output-on-failure -j ${{ runner.os == 'Windows' && 4 || nproc }}
+        run: ctest -C Debug --output-on-failure
         env:
           ASAN_OPTIONS: verbosity=1:detect_leaks=1
 
-  # Documentation deployment to GitHub Pages
   deploy-docs:
     if: github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest
     steps:
+      # Checkout the repository
       - uses: actions/checkout@v3
+      # Configure CMake
       - name: Configure CMake
         run: cmake -B ${{ env.BUILD_DIR }}
+      # Generate documentation
       - name: Generate Documentation
         run: cmake --build ${{ env.BUILD_DIR }} --target doc_doxygen
+      # Deploy to GitHub Pages
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ${{ env.BUILD_DIR }}/docs/api
 
-  # Update CHANGELOG on release
   update-changelog:
     if: github.event_name == 'release'
     runs-on: ubuntu-latest
     steps:
+      # Checkout the repository with full history
       - uses: actions/checkout@v3
         with:
           fetch-depth: 0
+      # Update the CHANGELOG file
       - name: Update CHANGELOG
         run: |
           git log --pretty=format:"* %s" $(git describe --tags --abbrev=0)..HEAD > CHANGELOG_NEW.md
@@ -161,6 +177,7 @@ jobs:
           cat CHANGELOG.md >> CHANGELOG_TEMP.md
           mv CHANGELOG_TEMP.md CHANGELOG.md
           rm CHANGELOG_NEW.md
+      # Commit and push the updated CHANGELOG
       - name: Commit CHANGELOG update
         run: |
           git config --local user.email "action@github.com"
