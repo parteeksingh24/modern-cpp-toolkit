@@ -59,7 +59,7 @@ jobs:
 
       - name: Test the project
         working-directory: ${{ env.BUILD_DIR }}
-        run: ctest -C Release --output-on-failure -j ${{ matrix.os == 'windows-latest' && '4' || $(nproc) }}
+        run: ctest -C Release --output-on-failure -j ${{ matrix.os == 'windows-latest' && 4 || nproc }}
 
       # Generate API documentation using Doxygen
       - name: Generate Documentation
@@ -101,7 +101,7 @@ jobs:
         run: cmake --build ${{ env.BUILD_DIR }} --config Debug
       - name: Test
         working-directory: ${{ env.BUILD_DIR }}
-        run: ctest -C Debug --output-on-failure -j $(nproc)
+        run: ctest -C Debug --output-on-failure -j ${{ runner.os == 'Windows' && 4 || nproc }}
       - name: Generate coverage report
         run: |
           lcov --capture --directory . --output-file coverage.info
@@ -123,7 +123,7 @@ jobs:
         run: cmake --build ${{ env.BUILD_DIR }} --config Debug
       - name: Test with sanitizers
         working-directory: ${{ env.BUILD_DIR }}
-        run: ctest -C Debug --output-on-failure -j $(nproc)
+        run: ctest -C Debug --output-on-failure -j ${{ runner.os == 'Windows' && 4 || nproc }}
         env:
           ASAN_OPTIONS: verbosity=1:detect_leaks=1
 
