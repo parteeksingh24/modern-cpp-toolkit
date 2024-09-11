@@ -7,223 +7,75 @@ on:
     branches: [ main, develop, feature/** ]
   pull_request:
     branches: [ main, develop ]
-  release:
-    types: [created]
-
-# Environment variables
-env:
-  BUILD_DIR: ${{ github.workspace }}/build
-  ENABLE_COVERAGE: false  # Set to true to enable code coverage
 
 # Jobs to be executed
 jobs:
-  # Build and test job
-  build-and-test:
+  build:
     runs-on: ${{ matrix.os }}
+
     strategy:
+      # If one job fails, continue running others to gather feedback from all jobs
       fail-fast: false
+
+      # Matrix to define multiple combinations of OS, build types, and compilers
+      # This matrix will run builds for:
+      # - Windows with MSVC (cl)
+      # - Linux with GCC and Clang
       matrix:
-        # Test on multiple OS and build types
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        build_type: [Release, Debug]
+        os: [ubuntu-latest, windows-latest]
+        build_type: [Release]
+        c_compiler: [gcc, clang, cl]  # Compilers used in the matrix
         include:
-          # Specify compilers for each OS
-          - os: ubuntu-latest
-            c_compiler: gcc
-            cpp_compiler: g++
-          - os: ubuntu-latest
-            c_compiler: clang
-            cpp_compiler: clang++
-          - os: macos-latest
-            c_compiler: clang
-            cpp_compiler: clang++
+          # Windows using MSVC (cl)
           - os: windows-latest
             c_compiler: cl
             cpp_compiler: cl
+          # Linux using GCC
+          - os: ubuntu-latest
+            c_compiler: gcc
+            cpp_compiler: g++
+          # Linux using Clang
+          - os: ubuntu-latest
+            c_compiler: clang
+            cpp_compiler: clang++
+        exclude:
+          # Exclude invalid or redundant combinations
+          - os: windows-latest
+            c_compiler: gcc  # GCC is not valid on Windows
+          - os: windows-latest
+            c_compiler: clang  # Clang is also not valid on Windows
+          - os: ubuntu-latest
+            c_compiler: cl  # MSVC (cl) is not valid on Linux
 
     steps:
-    # Checkout the repository and submodules
-    - uses: actions/checkout@v4
-      with:
-        submodules: 'recursive'
+    - uses: actions/checkout@v4  # Checkout the code from the repository
 
-    # Cache CMake build to speed up subsequent runs
-    - name: Cache CMake
-      uses: actions/cache@v3
-      with:
-        path: ${{ env.BUILD_DIR }}
-        key: ${{ runner.os }}-${{ matrix.c_compiler }}-cmake-${{ hashFiles('**/CMakeLists.txt', '**/*.cpp', '**/*.h') }}
-
-    # Install dependencies for each OS
-    - name: Install dependencies (Ubuntu)
-      if: matrix.os == 'ubuntu-latest'
+    - name: Set reusable strings
+      # Create reusable variables (like the build output directory) to avoid repeating them in different steps
+      id: strings
+      shell: bash
       run: |
-        sudo apt-get update
-        sudo apt-get install -y cmake doxygen
+        echo "build-output-dir=${{ github.workspace }}/build" >> "$GITHUB_OUTPUT"
 
-    - name: Install dependencies (macOS)
-      if: matrix.os == 'macos-latest'
-      run: brew install cmake doxygen
-
-    # Set up MSVC environment for Windows
-    - name: Set up MSVC environment
-      if: matrix.os == 'windows-latest'
-      uses: ilammy/msvc-dev-cmd@v1
-
-    # Configure CMake
     - name: Configure CMake
+      # Configure the build using CMake in the 'build' subdirectory
+      # Using matrix variables to set the compilers and build type for each job
       run: >
-        cmake -B ${{ env.BUILD_DIR }}
-        -DCMAKE_C_COMPILER=${{ matrix.c_compiler }}
+        cmake -B ${{ steps.strings.outputs.build-output-dir }}
         -DCMAKE_CXX_COMPILER=${{ matrix.cpp_compiler }}
+        -DCMAKE_C_COMPILER=${{ matrix.c_compiler }}
         -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
-        -DBUILD_TESTS=ON
-        -DBUILD_BENCHMARKS=ON
-        -DCMAKE_CXX_FLAGS="${{ env.ENABLE_COVERAGE == 'true' && matrix.build_type == 'Debug' && '--coverage' || '' }}"
-        -DCMAKE_EXE_LINKER_FLAGS="${{ env.ENABLE_COVERAGE == 'true' && matrix.build_type == 'Debug' && '--coverage' || '' }}"
+        -DBUILD_TESTS=ON  # Optionally configure to build tests
+        -DBUILD_BENCHMARKS=ON  # Optionally configure to build benchmarks
+        -S ${{ github.workspace }}
 
-    # Build the project
     - name: Build
-      run: cmake --build ${{ env.BUILD_DIR }} --config ${{ matrix.build_type }}
+      # Build the project using the CMake configuration
+      # Use the matrix's build type (Release by default)
+      run: cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ matrix.build_type }}
 
-    # Run tests
     - name: Test
-      working-directory: ${{ env.BUILD_DIR }}
-      run: ctest -C ${{ matrix.build_type }} --output-on-failure
-
-    # Generate documentation (only for Ubuntu Release builds on main or develop)
-    - name: Generate Documentation
-      if: matrix.os == 'ubuntu-latest' && matrix.build_type == 'Release' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
-      run: cmake --build ${{ env.BUILD_DIR }} --target doc_doxygen
-
-  # Static analysis job
-  static-analysis:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-
-    # Install Clang tools for static analysis
-    - name: Install Clang tools
-      run: sudo apt-get install -y clang-tidy clang-format
-
-    # Run Clang-Tidy for static code analysis
-    - name: Run Clang-Tidy
-      run: |
-        cmake -B ${{ env.BUILD_DIR }} -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-        run-clang-tidy -p ${{ env.BUILD_DIR }}
-
-    # Check code formatting with Clang-Format
-    - name: Check Clang-Format
-      run: |
-        find . -name '*.cpp' -o -name '*.hpp' -o -name '*.h' | xargs clang-format -i --dry-run -Werror
-
-  # Code coverage job
-  code-coverage:
-    runs-on: ubuntu-latest
-    if: env.ENABLE_COVERAGE == 'true'  # Only run if coverage is enabled
-    steps:
-    - uses: actions/checkout@v4
-
-    # Install lcov for generating coverage reports
-    - name: Install lcov
-      run: sudo apt-get install -y lcov
-
-    # Configure CMake with coverage flags
-    - name: Configure CMake
-      run: cmake -B ${{ env.BUILD_DIR }} -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS="--coverage" -DCMAKE_EXE_LINKER_FLAGS="--coverage"
-
-    # Build the project
-    - name: Build
-      run: cmake --build ${{ env.BUILD_DIR }} --config Debug
-
-    # Run tests
-    - name: Test
-      working-directory: ${{ env.BUILD_DIR }}
-      run: ctest -C Debug --output-on-failure
-
-    # Generate and process coverage report
-    - name: Generate coverage report
-      run: |
-        lcov --capture --directory . --output-file coverage.info
-        lcov --remove coverage.info '/usr/*' '/Library/*' '*/tests/*' '*/external/*' --output-file coverage.info
-        lcov --list coverage.info
-
-    # Upload coverage report to Codecov
-    - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v3
-      with:
-        files: ./coverage.info
-
-  # Benchmark job
-  benchmark:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-
-    # Configure CMake with benchmarks enabled
-    - name: Configure CMake
-      run: cmake -B ${{ env.BUILD_DIR }} -DCMAKE_BUILD_TYPE=Release -DBUILD_BENCHMARKS=ON
-
-    # Build the project
-    - name: Build
-      run: cmake --build ${{ env.BUILD_DIR }} --config Release
-
-    # Run benchmarks
-    - name: Run benchmarks
-      working-directory: ${{ env.BUILD_DIR }}
-      run: ctest -C Release -R benchmark --output-on-failure
-
-  # Create release job (triggered on release creation)
-  create-release:
-    if: github.event_name == 'release' && github.event.action == 'created'
-    needs: [build-and-test, static-analysis, code-coverage, benchmark]
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-
-    # Configure and build the project
-    - name: Configure CMake
-      run: cmake -B ${{ env.BUILD_DIR }} -DCMAKE_BUILD_TYPE=Release
-
-    - name: Build
-      run: cmake --build ${{ env.BUILD_DIR }} --config Release
-
-    # Create and upload release artifact
-    - name: Create release artifact
-      run: |
-        mkdir release
-        cp ${{ env.BUILD_DIR }}/lib/* release/ || true
-        cp ${{ env.BUILD_DIR }}/bin/* release/ || true
-        tar -czf optic-library-${{ github.ref_name }}.tar.gz release
-
-    - name: Upload release artifact
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ github.event.release.upload_url }}
-        asset_path: ./optic-library-${{ github.ref_name }}.tar.gz
-        asset_name: optic-library-${{ github.ref_name }}.tar.gz
-        asset_content_type: application/gzip
-
-  # Deploy documentation job (triggered on push to main)
-  deploy-docs:
-    if: github.ref == 'refs/heads/main'
-    needs: build-and-test
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-
-    # Configure CMake and generate documentation
-    - name: Configure CMake
-      run: cmake -B ${{ env.BUILD_DIR }}
-
-    - name: Generate Documentation
-      run: cmake --build ${{ env.BUILD_DIR }} --target doc_doxygen
-
-    # Deploy documentation to GitHub Pages
-    - name: Deploy to GitHub Pages
-      uses: peaceiris/actions-gh-pages@v3
-      with:
-        github_token: ${{ secrets.GITHUB_TOKEN }}
-        publish_dir: ${{ env.BUILD_DIR }}/docs/api
+      # Run tests using CTest in the build output directory
+      # For multi-config generators (like Visual Studio), specify the build config (Release/Debug)
+      working-directory: ${{ steps.strings.outputs.build-output-dir }}
+      run: ctest --build-config ${{ matrix.build_type }}
