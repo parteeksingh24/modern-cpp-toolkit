@@ -10,7 +10,25 @@ on:
 
 # Jobs to be executed
 jobs:
+  check_source_files:
+    runs-on: ubuntu-latest
+    outputs:
+      has_source_files: ${{ steps.check_files.outputs.has_source_files }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for source files
+        id: check_files
+        run: |
+          if find . -name '*.cpp' -o -name '*.hpp' -o -name '*.h' | grep -q .; then
+            echo "has_source_files=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_source_files=false" >> $GITHUB_OUTPUT
+          fi
+
   build:
+    needs: check_source_files
+    if: needs.check_source_files.outputs.has_source_files == 'true'
     runs-on: ${{ matrix.os }}
 
     strategy:
@@ -18,12 +36,8 @@ jobs:
       fail-fast: false
 
       # Matrix to define multiple combinations of OS, build types, and compilers
-      # This matrix will run builds for:
-      # - Windows with MSVC (cl)
-      # - Linux with GCC and Clang
-      # - MacOS with Clang
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
         build_type: [Release]
         c_compiler: [gcc, clang, cl]  # Compilers used in the matrix
         include:
@@ -111,22 +125,35 @@ jobs:
 
   # Static analysis job using Clang-Tidy and Clang-Format
   static-analysis:
+    needs: check_source_files
+    if: needs.check_source_files.outputs.has_source_files == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4  # Checkout the repository code
 
-    - name: Install Clang-Tidy and Clang-Format
-      # Install Clang-Tidy and Clang-Format on Ubuntu for static analysis
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y clang-tidy clang-format
+      - name: Install Clang-Tidy and Clang-Format
+        # Install Clang-Tidy and Clang-Format on Ubuntu for static analysis
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-tidy clang-format
 
-    - name: Run Clang-Tidy
-      # Run Clang-Tidy for static analysis on all .cpp, .hpp, and .h files
-      run: |
-        find . -name '*.cpp' -o -name '*.hpp' -o -name '*.h' | xargs -I {} clang-tidy {} -- -std=c++17
+      - name: Run Clang-Tidy
+        # Run Clang-Tidy for static analysis on all .cpp, .hpp, and .h files
+        run: |
+          find . -name '*.cpp' -o -name '*.hpp' -o -name '*.h' | xargs -I {} clang-tidy {} -- -std=c++17
 
-    - name: Run Clang-Format
-      # Check code formatting using Clang-Format and ensure no changes are needed
-      run: |
-        find . -name '*.cpp' -o -name '*.hpp' -o -name '*.h' | xargs clang-format -i --dry-run --Werror
+      - name: Run Clang-Format
+        # Check code formatting using Clang-Format and ensure no changes are needed
+        run: |
+          find . -name '*.cpp' -o -name '*.hpp' -o -name '*.h' | xargs clang-format -i --dry-run --Werror
+
+  # Job to notify if no source files are found
+  no_source_files:
+    needs: check_source_files
+    if: needs.check_source_files.outputs.has_source_files == 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify no source files
+        run: |
+          echo "No source files found in the repository."
+          echo "Please add some source files before running the CI pipeline."
