@@ -10,7 +10,25 @@ on:
 
 # Jobs to be executed
 jobs:
+  check_source_files:
+    runs-on: ubuntu-latest
+    outputs:
+      has_source_files: ${{ steps.check_files.outputs.has_source_files }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for source files
+        id: check_files
+        run: |
+          if find . -name '*.cpp' -o -name '*.hpp' -o -name '*.h' | grep -q .; then
+            echo "has_source_files=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_source_files=false" >> $GITHUB_OUTPUT
+          fi
+
   build:
+    needs: check_source_files
+    if: needs.check_source_files.outputs.has_source_files == 'true'
     runs-on: ${{ matrix.os }}
 
     strategy:
@@ -18,11 +36,8 @@ jobs:
       fail-fast: false
 
       # Matrix to define multiple combinations of OS, build types, and compilers
-      # This matrix will run builds for:
-      # - Windows with MSVC (cl)
-      # - Linux with GCC and Clang
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
         build_type: [Release]
         c_compiler: [gcc, clang, cl]  # Compilers used in the matrix
         include:
@@ -38,6 +53,10 @@ jobs:
           - os: ubuntu-latest
             c_compiler: clang
             cpp_compiler: clang++
+          # macOS using Clang (default)
+          - os: macos-latest
+            c_compiler: clang
+            cpp_compiler: clang++
         exclude:
           # Exclude invalid or redundant combinations
           - os: windows-latest
@@ -46,6 +65,10 @@ jobs:
             c_compiler: clang  # Clang is also not valid on Windows
           - os: ubuntu-latest
             c_compiler: cl  # MSVC (cl) is not valid on Linux
+          - os: macos-latest
+            c_compiler: gcc # GCC is not the default on macOS
+          - os: macos-latest
+            c_compiler: cl # MSVC (cl) is not valid on macOS
 
     steps:
     - uses: actions/checkout@v4  # Checkout the code from the repository
@@ -56,6 +79,26 @@ jobs:
       shell: bash
       run: |
         echo "build-output-dir=${{ github.workspace }}/build" >> "$GITHUB_OUTPUT"
+
+    - name: Install dependencies (Ubuntu)
+      if: runner.os == 'Linux'
+      # Install CMake and compilers
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cmake gcc g++ clang
+
+    - name: Install dependencies (macOS)
+      if: runner.os == 'macOS'
+      # Install CMake on macOS using Homebrew
+      run: |
+        brew install cmake
+
+    - name: Install dependencies (Windows)
+      if: runner.os == 'Windows'
+      # Install CMake (using Chocolatey) and Visual Studio Build Tools on Windows  
+      run: |
+        choco install cmake
+        choco install visualstudio2022buildtools
 
     - name: Configure CMake
       # Configure the build using CMake in the 'build' subdirectory
@@ -78,4 +121,39 @@ jobs:
       # Run tests using CTest in the build output directory
       # For multi-config generators (like Visual Studio), specify the build config (Release/Debug)
       working-directory: ${{ steps.strings.outputs.build-output-dir }}
-      run: ctest --build-config ${{ matrix.build_type }}
+      run: ctest --build-config ${{ matrix.build_type }} --output-on-failure
+
+  # Static analysis job using Clang-Tidy and Clang-Format
+  static-analysis:
+    needs: check_source_files
+    if: needs.check_source_files.outputs.has_source_files == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4  # Checkout the repository code
+
+      - name: Install Clang-Tidy and Clang-Format
+        # Install Clang-Tidy and Clang-Format on Ubuntu for static analysis
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-tidy clang-format
+
+      - name: Run Clang-Tidy
+        # Run Clang-Tidy for static analysis on all .cpp, .hpp, and .h files
+        run: |
+          find . -name '*.cpp' -o -name '*.hpp' -o -name '*.h' | xargs -I {} clang-tidy {} -- -std=c++17
+
+      - name: Run Clang-Format
+        # Check code formatting using Clang-Format and ensure no changes are needed
+        run: |
+          find . -name '*.cpp' -o -name '*.hpp' -o -name '*.h' | xargs clang-format -i --dry-run --Werror
+
+  # Job to notify if no source files are found
+  no_source_files:
+    needs: check_source_files
+    if: needs.check_source_files.outputs.has_source_files == 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify no source files
+        run: |
+          echo "No source files found in the repository."
+          echo "Please add some source files before running the CI pipeline."

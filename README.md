@@ -1,7 +1,7 @@
 # Optic Library: A modern C++ toolkit
 
 <!-- Badges -->
-![Build Status](https://github.com/parteeksingh24/optic-library/workflows/CI/badge.svg)
+[![Optic Library CI/CD](https://github.com/parteeksingh24/optic-library/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/parteeksingh24/optic-library/actions/workflows/ci-cd.yml)
 [![codecov](https://codecov.io/gh/parteeksingh24/optic-library/branch/main/graph/badge.svg)](https://codecov.io/gh/parteeksingh24/optic-library)
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 
